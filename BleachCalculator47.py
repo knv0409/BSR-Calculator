@@ -221,6 +221,18 @@ class ToggleSwitch(QWidget):
         p.drawEllipse(x, 2, 24, 24)
         p.end()
 
+class InventoryTintOverlay(QWidget):
+    """재화 추가 모드에서만 배경 위에 표시되는 매우 옅은 색조."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.hide()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(255, 184, 92, 42))
+        painter.end()
+
 class CustomSpinBox(QSpinBox):
     grid_map = {}
     row_max_col = {}
@@ -934,6 +946,9 @@ class BleachCalcApp(QMainWindow):
                 lbl.clear()
                 lbl.setGeometry(0, 0, 0, 0)
             lbl.lower()
+        if hasattr(self, "inv_tint_overlay"):
+            self.inv_tint_overlay.setGeometry(self.tab_inv.rect())
+            self.inv_tint_overlay.stackUnder(self.inv_scroll)
 
     def show_info_dialog(self):
         dialog = InfoDialog(self)
@@ -1532,9 +1547,12 @@ class BleachCalcApp(QMainWindow):
         for spinbox in self.inv_inputs.values():
             if isinstance(spinbox, CustomSpinBox):
                 spinbox.set_resource_add_mode(enabled)
-        self.inv_container.setStyleSheet(
-            "background-color: rgba(255, 232, 184, 95);" if enabled else ""
-        )
+        if enabled:
+            self.inv_tint_overlay.setGeometry(self.tab_inv.rect())
+            self.inv_tint_overlay.stackUnder(self.inv_scroll)
+            self.inv_tint_overlay.show()
+        else:
+            self.inv_tint_overlay.hide()
         self.btn_resource_add_mode.setText("➖ 재화 추가 모드 해제" if enabled else "➕ 재화 추가 모드")
         self.btn_resource_add_mode.setStyleSheet(
             "background-color: #f0ad4e; color: #222; font-weight: bold; padding: 6px 12px;"
@@ -1550,6 +1568,7 @@ class BleachCalcApp(QMainWindow):
         self.inv_scroll = QScrollArea()
         self.inv_scroll.setWidgetResizable(True)
         self.inv_container = QWidget()
+        self.inv_tint_overlay = InventoryTintOverlay(self.tab_inv)
         layout = QVBoxLayout(self.inv_container)
         current_r = 0
         g_top = QGroupBox("💰 공통, 각인 및 패시브 재화")
