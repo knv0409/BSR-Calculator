@@ -1558,6 +1558,7 @@ class BleachCalcApp(QMainWindow):
         current_r += 1
         action_row = QHBoxLayout()
         self.btn_resource_add_mode = QPushButton("➕ 재화 추가 모드")
+        self.btn_resource_add_mode.setFixedWidth(180)
         self.btn_resource_add_mode.setCheckable(True)
         self.btn_resource_add_mode.setStyleSheet("background-color: #17a2b8; color: white; font-weight: bold; padding: 6px 12px;")
         self.btn_resource_add_mode.toggled.connect(self.set_resource_add_mode)
