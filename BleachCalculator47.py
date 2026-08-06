@@ -232,8 +232,10 @@ class CustomSpinBox(QSpinBox):
         self._resource_add_mode = False
         self._value_before_edit = 0
         self._applying_delta = False
+        self._delta_text_edited = False
         self.setRange(self._normal_minimum, self._normal_maximum)
         self.setButtonSymbols(QAbstractSpinBox.NoButtons)
+        self.lineEdit().textEdited.connect(self.mark_delta_text_edited)
         self.editingFinished.connect(self.apply_resource_delta_if_needed)
         if width: self.setFixedWidth(width)
         if r != -1 and c != -1:
@@ -253,11 +255,15 @@ class CustomSpinBox(QSpinBox):
 
     def focusInEvent(self, event):
         self._value_before_edit = self.value()
+        self._delta_text_edited = False
         super().focusInEvent(event)
         self.selectAll()
 
+    def mark_delta_text_edited(self, _text):
+        self._delta_text_edited = True
+
     def apply_resource_delta_if_needed(self):
-        if not self._resource_add_mode or self._applying_delta:
+        if not self._resource_add_mode or self._applying_delta or not self._delta_text_edited:
             return
         try:
             delta = int(self.lineEdit().text().replace(",", "").strip())
@@ -266,6 +272,7 @@ class CustomSpinBox(QSpinBox):
         self._applying_delta = True
         self.setValue(max(self._normal_minimum, min(self._normal_maximum, self._value_before_edit + delta)))
         self._value_before_edit = self.value()
+        self._delta_text_edited = False
         self._applying_delta = False
 
     def keyPressEvent(self, event):
@@ -1506,7 +1513,9 @@ class BleachCalcApp(QMainWindow):
         for spinbox in self.inv_inputs.values():
             if isinstance(spinbox, CustomSpinBox):
                 spinbox.set_resource_add_mode(enabled)
-        self.inv_scroll.viewport().setStyleSheet("background-color: #fff8e1;" if enabled else "")
+        self.inv_container.setStyleSheet(
+            "background-color: rgba(255, 232, 184, 95);" if enabled else ""
+        )
         self.btn_resource_add_mode.setText("➖ 재화 추가 모드 해제" if enabled else "➕ 재화 추가 모드")
         self.btn_resource_add_mode.setStyleSheet(
             "background-color: #f0ad4e; color: #222; font-weight: bold; padding: 6px 12px;"
