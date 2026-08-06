@@ -48,7 +48,7 @@ PASSIVE_SKILL = {
     3: {1: (6, 16500), 2: (12, 43500), 3: (18, 125000)}
 }
 
-PROPERTIES =["참술", "백타", "돌격", "영술"]
+PROPERTIES =["참술", "백타", "돌격", "영술", "기예"]
 TYPES =["강습", "전술", "지원"]
 AUTOSAVE_FILE = "BSRCal_autosave.json"
 
@@ -1032,6 +1032,7 @@ class BleachCalcApp(QMainWindow):
             for g in ["normal", "advanced", "rare"]:
                 req[f"ouyi_{p}_{g}"] = 0; req[f"hammer_{p}_{g}"] = 0; req[f"yoryung_{p}_{g}"] = 0
         for t in TYPES: req[f"omamori_{t}"] = 0
+        req["omamori_universal"] = 0
         prop = c["prop"]; ctype = c["type"]
         for lv in LEVELS:
             if lv > 1 and c["char_curr"] < lv <= c["char_targ"]:
@@ -1161,6 +1162,8 @@ class BleachCalcApp(QMainWindow):
                     if key == f"{prefix}_{p}_{g}": return f"{label} {gl} ({p})"
         for t in TYPES:
             if key == f"omamori_{t}": return f"오마모리 ({t})"
+        if key == "omamori_universal": return "범용 오마모리"
+        if key == "yoryung_universal": return "범용 요령"
         return key
 
     def on_growth_requested(self, widget):
@@ -1188,6 +1191,7 @@ class BleachCalcApp(QMainWindow):
         for prefix, label in [("yoryung", "요령"), ("hammer", "망치"), ("ouyi", "오의")]:
             rn = req[f"{prefix}_{prop}_normal"]; ra = req[f"{prefix}_{prop}_advanced"]; rr = req[f"{prefix}_{prop}_rare"]
             hn = self.inv_inputs[f"{prefix}_{prop}_normal"].value()
+            if prefix == "yoryung": hn += self.inv_inputs["yoryung_universal"].value()
             ha = self.inv_inputs[f"{prefix}_{prop}_advanced"].value()
             hr = self.inv_inputs[f"{prefix}_{prop}_rare"].value()
             mn, ma, mr = resolve_material_shortage(rn, ra, rr, hn, ha, hr)
@@ -1198,7 +1202,8 @@ class BleachCalcApp(QMainWindow):
         for t in TYPES:
             need = req.get(f"omamori_{t}", 0)
             have = self.inv_inputs[f"omamori_{t}"].value()
-            if need > have: missing_lines.append(f"  • {t} 오마모리: {need-have:,}개 부족")
+            universal = self.inv_inputs["omamori_universal"].value()
+            if need > have + universal: missing_lines.append(f"  • {t} 오마모리: {need-have-universal:,}개 부족")
 
         if missing_lines:
             msg = "다음 재화가 부족합니다:\n" + "\n".join(missing_lines) + "\n\n그래도 성장완료 처리하겠습니까?"
@@ -1242,23 +1247,38 @@ class BleachCalcApp(QMainWindow):
             for g in ["normal", "advanced", "rare"]:
                 key = f"{prefix}_{prop}_{g}"
                 cost[key] = self.inv_inputs[key].value()
-            self._deduct_grade_material(
-                f"{prefix}_{prop}",
-                req[f"{prefix}_{prop}_normal"],
-                req[f"{prefix}_{prop}_advanced"],
-                req[f"{prefix}_{prop}_rare"]
-            )
+            if prefix == "yoryung":
+                cost["yoryung_universal"] = self.inv_inputs["yoryung_universal"].value()
+            if prefix == "yoryung":
+                normal_key = f"{prefix}_{prop}_normal"
+                universal_key = "yoryung_universal"
+                specific, universal = self.inv_inputs[normal_key].value(), self.inv_inputs[universal_key].value()
+                self.inv_inputs[normal_key].setValue(specific + universal)
+                self._deduct_grade_material(f"{prefix}_{prop}", req[f"{prefix}_{prop}_normal"], req[f"{prefix}_{prop}_advanced"], req[f"{prefix}_{prop}_rare"])
+                remaining = self.inv_inputs[normal_key].value()
+                self.inv_inputs[universal_key].setValue(min(universal, remaining))
+                self.inv_inputs[normal_key].setValue(remaining - self.inv_inputs[universal_key].value())
+            else:
+                self._deduct_grade_material(f"{prefix}_{prop}", req[f"{prefix}_{prop}_normal"], req[f"{prefix}_{prop}_advanced"], req[f"{prefix}_{prop}_rare"])
             for g in ["normal", "advanced", "rare"]:
                 key = f"{prefix}_{prop}_{g}"
                 cost[key] = cost[key] - self.inv_inputs[key].value()  # 차감된 양
+            if prefix == "yoryung": cost["yoryung_universal"] -= self.inv_inputs["yoryung_universal"].value()
 
         for t in TYPES:
             need = req.get(f"omamori_{t}", 0)
             if need > 0:
                 key = f"omamori_{t}"
                 before = self.inv_inputs[key].value()
-                self.inv_inputs[key].setValue(max(0, before - need))
-                cost[key] = cost.get(key, 0) + (before - self.inv_inputs[key].value())
+                used_specific = min(before, need)
+                self.inv_inputs[key].setValue(before - used_specific)
+                cost[key] = cost.get(key, 0) + used_specific
+                remaining = need - used_specific
+                if remaining:
+                    universal_key = "omamori_universal"; universal_before = self.inv_inputs[universal_key].value()
+                    used_universal = min(universal_before, remaining)
+                    self.inv_inputs[universal_key].setValue(universal_before - used_universal)
+                    cost[universal_key] = cost.get(universal_key, 0) + used_universal
 
         widget.set_growth_done(cost)
         self.save_autosave()
@@ -1425,7 +1445,7 @@ class BleachCalcApp(QMainWindow):
     def get_colored_prop_label(self, prop_name):
         lbl = QLabel(f"{prop_name} 속성")
         lbl.setAlignment(Qt.AlignCenter)
-        colors = {"참술": "#f8d7da", "백타": "#ffdfba", "돌격": "#fff3cd", "영술": "#d0ebff"}
+        colors = {"참술": "#f8d7da", "백타": "#ffdfba", "돌격": "#fff3cd", "영술": "#d0ebff", "기예": "#e2d9f3"}
         color = colors.get(prop_name, "transparent")
         lbl.setStyleSheet(f"background-color: {color}; border-radius: 4px; padding: 4px; font-weight: bold; color: #333;")
         return lbl
@@ -1459,6 +1479,8 @@ class BleachCalcApp(QMainWindow):
             self.inv_inputs[f"omamori_{t}"] = sp
             row2.addWidget(QLabel(f"[{t}] 오마모리:")); row2.addWidget(sp)
             row2.addSpacing(5)
+        self.inv_inputs["omamori_universal"] = CustomSpinBox(r=current_r, c=len(TYPES), width=70)
+        row2.addWidget(QLabel("범용 오마모리:")); row2.addWidget(self.inv_inputs["omamori_universal"])
         row2.addStretch()
         current_r += 1
         l_top_main.addLayout(row1); l_top_main.addLayout(row2)
@@ -1484,6 +1506,10 @@ class BleachCalcApp(QMainWindow):
         l_yoryung = QGridLayout()
         l_yoryung.addWidget(QLabel("<b>[속성]</b>"), 0, 0)
         for c, t in enumerate(["일반", "고급", "희귀"], 1): l_yoryung.addWidget(self.get_colored_grade_label(t), 0, c)
+        l_yoryung.addWidget(QLabel("범용 요령"), 1, 0)
+        self.inv_inputs["yoryung_universal"] = CustomSpinBox(r=current_r, c=0, width=70)
+        l_yoryung.addWidget(self.inv_inputs["yoryung_universal"], 1, 1)
+        current_r += 1
         for r_idx, prop in enumerate(PROPERTIES):
             l_yoryung.addWidget(self.get_colored_prop_label(prop), r_idx + 1, 0)
             for c, suffix in enumerate(["_normal", "_advanced", "_rare"]):
@@ -2227,6 +2253,7 @@ class BleachCalcApp(QMainWindow):
                 req[f"hammer_{p}_{g}"] = 0
                 req[f"yoryung_{p}_{g}"] = 0
         for t in TYPES: req[f"omamori_{t}"] = 0
+        req["omamori_universal"] = 0
 
         for widget in self.char_widgets:
             c = widget.get_data()
@@ -2294,7 +2321,7 @@ class BleachCalcApp(QMainWindow):
         if req['weap_exp'] > 0: tot_html += f"<li><b>무기 접쇠:</b> {format_item_amount(req['weap_exp'], 'weap_exp')}</li>"
         if req['engrave_exp'] > 0: tot_html += f"<li><b>각인의 영질:</b> {req['engrave_exp']:,} 개</li>"
         if req['engrave_core'] > 0: tot_html += f"<li><b>각인의 핵심:</b> {req['engrave_core']:,} 개</li>"
-        prop_colors = {"참술": "#f8d7da", "백타": "#ffdfba", "돌격": "#fff3cd", "영술": "#d0ebff"}
+        prop_colors = {"참술": "#f8d7da", "백타": "#ffdfba", "돌격": "#fff3cd", "영술": "#d0ebff", "기예": "#e2d9f3"}
         for p in PROPERTIES:
             c_tag = f"<span style='background-color:{prop_colors[p]}; color:#333; padding:2px; border-radius:3px;'><b>&nbsp;{p}&nbsp;</b></span>"
             for prefix, label in [("yoryung", "요령"), ("hammer", "망치"), ("ouyi", "오의")]:
@@ -2321,19 +2348,31 @@ class BleachCalcApp(QMainWindow):
                 for g in ["normal", "advanced", "rare"]:
                     owned[f"{prefix}_{p}_{g}"] = self.inv_inputs[f"{prefix}_{p}_{g}"].value()
         for t in TYPES: owned[f"omamori_{t}"] = self.inv_inputs[f"omamori_{t}"].value()
+        owned["omamori_universal"] = self.inv_inputs["omamori_universal"].value()
+        owned["yoryung_universal"] = self.inv_inputs["yoryung_universal"].value()
 
         # 부족량: 단순 재화는 직접 차감, 등급 재화는 교환 로직 적용
         missing = {}
         for key in ["hwan", "char_exp", "weap_exp", "engrave_exp", "engrave_core"]:
             missing[key] = max(0, req[key] - owned.get(key, 0))
+        universal_omamori = owned["omamori_universal"]
         for t in TYPES:
-            missing[f"omamori_{t}"] = max(0, req[f"omamori_{t}"] - owned.get(f"omamori_{t}", 0))
+            direct_missing = max(0, req[f"omamori_{t}"] - owned.get(f"omamori_{t}", 0))
+            used = min(universal_omamori, direct_missing)
+            universal_omamori -= used; missing[f"omamori_{t}"] = direct_missing - used
+        universal_yoryung = owned["yoryung_universal"]
         for p in PROPERTIES:
             for prefix in ["ouyi", "hammer", "yoryung"]:
+                normal = owned[f"{prefix}_{p}_normal"]
+                if prefix == "yoryung": normal += universal_yoryung
                 mn, ma, mr = resolve_material_shortage(
                     req[f"{prefix}_{p}_normal"], req[f"{prefix}_{p}_advanced"], req[f"{prefix}_{p}_rare"],
-                    owned[f"{prefix}_{p}_normal"], owned[f"{prefix}_{p}_advanced"], owned[f"{prefix}_{p}_rare"]
+                    normal, owned[f"{prefix}_{p}_advanced"], owned[f"{prefix}_{p}_rare"]
                 )
+                if prefix == "yoryung":
+                    # Consume only the generic normal material needed by this attribute.
+                    base_mn, base_ma, base_mr = resolve_material_shortage(req[f"{prefix}_{p}_normal"], req[f"{prefix}_{p}_advanced"], req[f"{prefix}_{p}_rare"], owned[f"{prefix}_{p}_normal"], owned[f"{prefix}_{p}_advanced"], owned[f"{prefix}_{p}_rare"])
+                    universal_yoryung = max(0, universal_yoryung - ((base_mn + base_ma * 3 + base_mr * 9) - (mn + ma * 3 + mr * 9)))
                 missing[f"{prefix}_{p}_normal"] = mn
                 missing[f"{prefix}_{p}_advanced"] = ma
                 missing[f"{prefix}_{p}_rare"] = mr
