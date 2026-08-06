@@ -227,8 +227,14 @@ class CustomSpinBox(QSpinBox):
     def __init__(self, r=-1, c=-1, width=70, max_val=999999999, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.r = r; self.c = c
-        self.setRange(0, max_val)
+        self._normal_minimum = 0
+        self._normal_maximum = max_val
+        self._resource_add_mode = False
+        self._value_before_edit = 0
+        self._applying_delta = False
+        self.setRange(self._normal_minimum, self._normal_maximum)
         self.setButtonSymbols(QAbstractSpinBox.NoButtons)
+        self.editingFinished.connect(self.apply_resource_delta_if_needed)
         if width: self.setFixedWidth(width)
         if r != -1 and c != -1:
             CustomSpinBox.grid_map[(r, c)] = self
@@ -237,7 +243,31 @@ class CustomSpinBox(QSpinBox):
                 
     def wheelEvent(self, event):
         event.ignore()
-        
+
+    def set_resource_add_mode(self, enabled):
+        self._resource_add_mode = enabled
+        if enabled:
+            self.setRange(-self._normal_maximum, self._normal_maximum)
+        else:
+            self.setRange(self._normal_minimum, self._normal_maximum)
+
+    def focusInEvent(self, event):
+        self._value_before_edit = self.value()
+        super().focusInEvent(event)
+        self.selectAll()
+
+    def apply_resource_delta_if_needed(self):
+        if not self._resource_add_mode or self._applying_delta:
+            return
+        try:
+            delta = int(self.lineEdit().text().replace(",", "").strip())
+        except ValueError:
+            return
+        self._applying_delta = True
+        self.setValue(max(self._normal_minimum, min(self._normal_maximum, self._value_before_edit + delta)))
+        self._value_before_edit = self.value()
+        self._applying_delta = False
+
     def keyPressEvent(self, event):
         if self.r != -1 and self.c != -1:
             if event.key() == Qt.Key_Down: self.navigate(1, 0); return
@@ -1472,39 +1502,17 @@ class BleachCalcApp(QMainWindow):
                         return f"{prop} {label} - {grade_label}"
         return key
 
-    def open_add_resource_dialog(self):
-        dialog = QDialog(self)
-        dialog.setWindowTitle("재화 추가")
-        dialog.setWindowFlags(dialog.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-        layout = QVBoxLayout(dialog)
-        layout.addWidget(QLabel("획득 예정 재화를 선택하고 수량을 입력하세요.\n입력한 수량은 현재 보유량에 바로 더해집니다."))
-
-        form = QFormLayout()
-        combo = QComboBox()
-        for key in self.inv_inputs:
-            combo.addItem(self._inventory_item_label(key), key)
-        amount = NoScrollSpinBox()
-        amount.setRange(1, 999999999)
-        amount.setValue(1)
-        form.addRow("재화:", combo)
-        form.addRow("추가 수량:", amount)
-        layout.addLayout(form)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
-        add_button = buttons.addButton("➕ 추가", QDialogButtonBox.AcceptRole)
-        add_button.setStyleSheet("background-color: #28A745; color: white; font-weight: bold; padding: 6px 12px;")
-        buttons.rejected.connect(dialog.reject)
-
-        def add_resource():
-            key = combo.currentData()
-            target = self.inv_inputs[key]
-            target.setValue(min(target.maximum(), target.value() + amount.value()))
-            self.save_autosave()
-            dialog.accept()
-
-        add_button.clicked.connect(add_resource)
-        layout.addWidget(buttons)
-        dialog.exec_()
+    def set_resource_add_mode(self, enabled):
+        for spinbox in self.inv_inputs.values():
+            if isinstance(spinbox, CustomSpinBox):
+                spinbox.set_resource_add_mode(enabled)
+        self.inv_scroll.viewport().setStyleSheet("background-color: #fff8e1;" if enabled else "")
+        self.btn_resource_add_mode.setText("➖ 재화 추가 모드 해제" if enabled else "➕ 재화 추가 모드")
+        self.btn_resource_add_mode.setStyleSheet(
+            "background-color: #f0ad4e; color: #222; font-weight: bold; padding: 6px 12px;"
+            if enabled else
+            "background-color: #17a2b8; color: white; font-weight: bold; padding: 6px 12px;"
+        )
 
     def setup_inv_tab(self):
         CustomSpinBox.grid_map.clear()
@@ -1540,11 +1548,12 @@ class BleachCalcApp(QMainWindow):
         row2.addStretch()
         current_r += 1
         action_row = QHBoxLayout()
-        btn_add_resource = QPushButton("➕ 재화 추가")
-        btn_add_resource.setStyleSheet("background-color: #17a2b8; color: white; font-weight: bold; padding: 6px 12px;")
-        btn_add_resource.clicked.connect(self.open_add_resource_dialog)
-        action_row.addWidget(btn_add_resource)
-        action_row.addWidget(QLabel("획득 예정 재화를 현재 보유량에 더합니다."))
+        self.btn_resource_add_mode = QPushButton("➕ 재화 추가 모드")
+        self.btn_resource_add_mode.setCheckable(True)
+        self.btn_resource_add_mode.setStyleSheet("background-color: #17a2b8; color: white; font-weight: bold; padding: 6px 12px;")
+        self.btn_resource_add_mode.toggled.connect(self.set_resource_add_mode)
+        action_row.addWidget(self.btn_resource_add_mode)
+        action_row.addWidget(QLabel("모드 중에는 입력한 수량만큼 더하거나 뺍니다. (예: 50, -50)"))
         action_row.addStretch()
         l_top_main.addLayout(row1); l_top_main.addLayout(row2); l_top_main.addLayout(action_row)
         g_top.setLayout(l_top_main); layout.addWidget(g_top)
