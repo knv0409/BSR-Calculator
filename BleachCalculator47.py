@@ -248,10 +248,21 @@ class CustomSpinBox(QSpinBox):
 
     def set_resource_add_mode(self, enabled):
         self._resource_add_mode = enabled
-        if enabled:
-            self.setRange(-self._normal_maximum, self._normal_maximum)
-        else:
-            self.setRange(self._normal_minimum, self._normal_maximum)
+        # 범위를 바꾸면 Qt가 입력칸의 크기 힌트를 다시 계산하므로, 기존 크기는 유지한다.
+
+    def validate(self, text, pos):
+        if self._resource_add_mode:
+            value_text = text.replace(",", "").strip()
+            if value_text in ("", "+", "-"):
+                return (QValidator.Intermediate, text, pos)
+            try:
+                value = int(value_text)
+                if -self._normal_maximum <= value <= self._normal_maximum:
+                    return (QValidator.Acceptable, text, pos)
+            except ValueError:
+                pass
+            return (QValidator.Invalid, text, pos)
+        return super().validate(text, pos)
 
     def focusInEvent(self, event):
         self._value_before_edit = self.value()
@@ -276,6 +287,10 @@ class CustomSpinBox(QSpinBox):
         self._applying_delta = False
 
     def keyPressEvent(self, event):
+        if self._resource_add_mode and event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            self.apply_resource_delta_if_needed()
+            self.clearFocus()
+            return
         if self.r != -1 and self.c != -1:
             if event.key() == Qt.Key_Down: self.navigate(1, 0); return
             elif event.key() == Qt.Key_Up: self.navigate(-1, 0); return
@@ -287,6 +302,10 @@ class CustomSpinBox(QSpinBox):
                     if line_edit.hasSelectedText() or line_edit.cursorPosition() == len(line_edit.text()): self.navigate(0, 1); return
         super().keyPressEvent(event)
         
+    def focusOutEvent(self, event):
+        self.apply_resource_delta_if_needed()
+        super().focusOutEvent(event)
+
     def navigate(self, dr, dc):
         target_r = self.r + dr; target_c = self.c + dc
         if dr != 0: 
