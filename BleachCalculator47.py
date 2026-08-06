@@ -13,7 +13,7 @@ def resource_path(filename):
         return os.path.join(sys._MEIPASS, filename)
     return filename
 
-CURRENT_VERSION = "v1.0.4"
+CURRENT_VERSION = "v1.0.5"
 GITHUB_REPO = "knv0409/BSR-Calculator"
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
@@ -1450,6 +1450,62 @@ class BleachCalcApp(QMainWindow):
         lbl.setStyleSheet(f"background-color: {color}; border-radius: 4px; padding: 4px; font-weight: bold; color: #333;")
         return lbl
 
+    def _inventory_item_label(self, key):
+        direct_labels = {
+            "hwan": "환", "engrave_exp": "각인의 영질", "engrave_core": "각인의 핵심",
+            "omamori_universal": "범용 오마모리", "yoryung_universal": "범용 요령",
+        }
+        if key in direct_labels:
+            return direct_labels[key]
+        grade_labels = {"normal": "일반", "advanced": "고급", "rare": "희귀", "legend": "전설"}
+        if key.startswith("char_exp_"):
+            return f"캐릭터 경력 - {grade_labels[key.removeprefix('char_exp_')]}"
+        if key.startswith("weap_exp_"):
+            return f"무기 접쇠 - {grade_labels[key.removeprefix('weap_exp_')]}"
+        for t in TYPES:
+            if key == f"omamori_{t}":
+                return f"{t} 오마모리"
+        for prop in PROPERTIES:
+            for prefix, label in [("yoryung", "요령"), ("hammer", "망치"), ("ouyi", "오의")]:
+                for grade, grade_label in grade_labels.items():
+                    if key == f"{prefix}_{prop}_{grade}":
+                        return f"{prop} {label} - {grade_label}"
+        return key
+
+    def open_add_resource_dialog(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("재화 추가")
+        dialog.setWindowFlags(dialog.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel("획득 예정 재화를 선택하고 수량을 입력하세요.\n입력한 수량은 현재 보유량에 바로 더해집니다."))
+
+        form = QFormLayout()
+        combo = QComboBox()
+        for key in self.inv_inputs:
+            combo.addItem(self._inventory_item_label(key), key)
+        amount = NoScrollSpinBox()
+        amount.setRange(1, 999999999)
+        amount.setValue(1)
+        form.addRow("재화:", combo)
+        form.addRow("추가 수량:", amount)
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
+        add_button = buttons.addButton("➕ 추가", QDialogButtonBox.AcceptRole)
+        add_button.setStyleSheet("background-color: #28A745; color: white; font-weight: bold; padding: 6px 12px;")
+        buttons.rejected.connect(dialog.reject)
+
+        def add_resource():
+            key = combo.currentData()
+            target = self.inv_inputs[key]
+            target.setValue(min(target.maximum(), target.value() + amount.value()))
+            self.save_autosave()
+            dialog.accept()
+
+        add_button.clicked.connect(add_resource)
+        layout.addWidget(buttons)
+        dialog.exec_()
+
     def setup_inv_tab(self):
         CustomSpinBox.grid_map.clear()
         CustomSpinBox.row_max_col.clear()
@@ -1483,7 +1539,14 @@ class BleachCalcApp(QMainWindow):
         row2.addWidget(QLabel("범용 오마모리:")); row2.addWidget(self.inv_inputs["omamori_universal"])
         row2.addStretch()
         current_r += 1
-        l_top_main.addLayout(row1); l_top_main.addLayout(row2)
+        action_row = QHBoxLayout()
+        btn_add_resource = QPushButton("➕ 재화 추가")
+        btn_add_resource.setStyleSheet("background-color: #17a2b8; color: white; font-weight: bold; padding: 6px 12px;")
+        btn_add_resource.clicked.connect(self.open_add_resource_dialog)
+        action_row.addWidget(btn_add_resource)
+        action_row.addWidget(QLabel("획득 예정 재화를 현재 보유량에 더합니다."))
+        action_row.addStretch()
+        l_top_main.addLayout(row1); l_top_main.addLayout(row2); l_top_main.addLayout(action_row)
         g_top.setLayout(l_top_main); layout.addWidget(g_top)
 
         def apply_compact_grid(grid, spacer_col):
