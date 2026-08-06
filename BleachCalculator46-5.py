@@ -1511,11 +1511,11 @@ class BleachCalcApp(QMainWindow):
         l_yoryung.addWidget(self.inv_inputs["yoryung_universal"], 1, 1)
         current_r += 1
         for r_idx, prop in enumerate(PROPERTIES):
-            l_yoryung.addWidget(self.get_colored_prop_label(prop), r_idx + 1, 0)
+            l_yoryung.addWidget(self.get_colored_prop_label(prop), r_idx + 2, 0)
             for c, suffix in enumerate(["_normal", "_advanced", "_rare"]):
                 sp = CustomSpinBox(r=current_r, c=c, width=70)
                 self.inv_inputs[f"yoryung_{prop}{suffix}"] = sp
-                l_yoryung.addWidget(sp, r_idx + 1, c + 1)
+                l_yoryung.addWidget(sp, r_idx + 2, c + 1)
             current_r += 1
         apply_compact_grid(l_yoryung, 4)
         g_yoryung.setLayout(l_yoryung); layout.addWidget(g_yoryung)
