@@ -13,7 +13,7 @@ def resource_path(filename):
         return os.path.join(sys._MEIPASS, filename)
     return filename
 
-CURRENT_VERSION = "v1.0.4"
+CURRENT_VERSION = "v1.0.5"
 GITHUB_REPO = "knv0409/BSR-Calculator"
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
@@ -81,6 +81,18 @@ def get_max_active_lv(char_lv):
     if char_lv >= 30: return 4
     if char_lv >= 20: return 3
     return 2
+
+def get_active_skill_count(prop, char_type):
+    """기예 캐릭터는 기존 액티브 스킬 목록에 입장 스킬을 하나 더 사용한다."""
+    return (5 if char_type == "전술" else 4) + (1 if prop == "기예" else 0)
+
+def get_active_skill_names(prop, char_type):
+    names = ["1. 봉멸", "2. 일반공격", "3. 전투 스킬", "4. 필살기"]
+    if char_type == "전술":
+        names.append("5. 전장 스킬")
+    if prop == "기예":
+        names.append(f"{len(names) + 1}. 입장 스킬")
+    return names
 
 def get_max_passive_lv(char_lv, p_idx):
     reqs = [[25, 45, 75],[35, 55, 85],[45, 65, 95]]
@@ -511,7 +523,7 @@ class PackageWidget(QFrame):
         self.noteChanged.emit()
 
 class SkillDialog(QDialog):
-    def __init__(self, parent, name, rarity, char_type, skill_data, char_targ_lv):
+    def __init__(self, parent, name, rarity, char_prop, char_type, skill_data, char_targ_lv):
         super().__init__(parent)
         self.setWindowTitle(f"{name} - 스킬 및 각인 설정")
         self.skill_data = skill_data
@@ -528,9 +540,9 @@ class SkillDialog(QDialog):
                 skill_data[f"engrave_{key}_targ_lv"] = skill_data.get('engrave_targ_lv', 1)
         self.char_targ_lv = char_targ_lv
         self.ui_active, self.ui_passive, self.ui_engrave = [], [], []
-        self.active_cnt = 5 if char_type == "전술" else 4
+        self.active_cnt = get_active_skill_count(char_prop, char_type)
         self.passive_cnt = 2 if rarity == "SR" else 3
-        self.active_names = ["1. 봉멸", "2. 일반공격", "3. 전투 스킬", "4. 필살기", "5. 전장 스킬"]
+        self.active_names = get_active_skill_names(char_prop, char_type)
         self.passive_names = ["강화 패시브 1", "강화 패시브 2", "강화 패시브 3"]
         self.initUI()
     def initUI(self):
@@ -606,7 +618,7 @@ class CharacterWidget(QFrame):
         super().__init__(parent)
         self.setObjectName("charFrame")
         self.char_info = char_info
-        ac_cnt = 5 if char_info["type"] == "전술" else 4
+        ac_cnt = get_active_skill_count(char_info["prop"], char_info["type"])
         pa_cnt = 2 if char_info["rarity"] == "SR" else 3
         self.skill_data = {"active_curr":[1]*ac_cnt, "active_targ": [9]*ac_cnt, "passive_curr": [0]*pa_cnt, "passive_targ":[3]*pa_cnt,
                            "engrave_set1_curr_lv": 1, "engrave_set1_targ_lv": 30,
@@ -654,7 +666,7 @@ class CharacterWidget(QFrame):
         ctrl_layout = QHBoxLayout()
         left_col = QVBoxLayout()
         self.btn_skill = QPushButton("⚙️ 스킬/각인 설정")
-        self.btn_skill.clicked.connect(lambda: SkillDialog(self, self.char_info['name'], self.char_info['rarity'], self.char_info['type'], self.skill_data, int(self.cb_char_targ.currentText())).exec_())
+        self.btn_skill.clicked.connect(lambda: SkillDialog(self, self.char_info['name'], self.char_info['rarity'], self.char_info['prop'], self.char_info['type'], self.skill_data, int(self.cb_char_targ.currentText())).exec_())
         self.btn_growth = QPushButton("✅ 성장 완료")
         self.btn_growth.setStyleSheet("color: #28A745; font-weight: bold;")
         self.btn_growth.clicked.connect(self._on_growth_clicked)
@@ -735,6 +747,12 @@ class CharacterWidget(QFrame):
         self.cb_weap_curr.setCurrentText(str(data.get("weap_curr", 1)))
         self.cb_weap_targ.setCurrentText(str(data.get("weap_targ", 100)))
         sd = data.get("skill_data", self.skill_data)
+        # v1.0.4 이하의 기예 캐릭터 저장 데이터에는 입장 스킬이 없으므로 추가한다.
+        active_cnt = get_active_skill_count(self.char_info["prop"], self.char_info["type"])
+        for key, default in [("active_curr", 1), ("active_targ", get_max_active_lv(int(self.cb_char_targ.currentText())))]:
+            sd.setdefault(key, [])
+            if len(sd[key]) < active_cnt:
+                sd[key].extend([default] * (active_cnt - len(sd[key])))
         # 구버전 bool 형식 호환
         if 'engrave_curr' in sd and 'engrave_set1_curr_lv' not in sd:
             default_targ = 30 if (not sd.get('engrave_curr', False) and sd.get('engrave_targ', True)) else 1
