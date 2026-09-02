@@ -13,7 +13,7 @@ def resource_path(filename):
         return os.path.join(sys._MEIPASS, filename)
     return filename
 
-CURRENT_VERSION = "v1.0.6"
+CURRENT_VERSION = "v1.0.7"
 GITHUB_REPO = "knv0409/BSR-Calculator"
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
@@ -767,20 +767,18 @@ class CharacterWidget(QFrame):
         self.cb_weap_curr.setCurrentText(str(data.get("weap_curr", 1)))
         self.cb_weap_targ.setCurrentText(str(data.get("weap_targ", 100)))
         sd = data.get("skill_data", self.skill_data)
-        # 입장 스킬은 별도 값으로 보관한다. 기존 v1.0.5의 목록 마지막 항목도 자동 이전한다.
+        # 입장 스킬은 별도 값으로 보관한다. 이전 형식에는 이 스킬이 없었으므로 기본 성장값을 적용한다.
         if self.char_info["prop"] == "기예":
             base_cnt = get_base_active_skill_count(self.char_info["type"])
             max_act = get_max_active_lv(int(self.cb_char_targ.currentText()))
             sd.setdefault("active_curr", [])
             sd.setdefault("active_targ", [])
-            if len(sd["active_curr"]) > base_cnt and "entry_curr" not in sd:
-                sd["entry_curr"] = sd["active_curr"][base_cnt]
-            if len(sd["active_targ"]) > base_cnt and "entry_targ" not in sd:
-                sd["entry_targ"] = sd["active_targ"][base_cnt]
+            is_legacy_entry = "entry_curr" not in sd or "entry_targ" not in sd
             sd["active_curr"] = sd["active_curr"][:base_cnt]
             sd["active_targ"] = sd["active_targ"][:base_cnt]
-            sd.setdefault("entry_curr", 1)
-            sd.setdefault("entry_targ", max_act)
+            if is_legacy_entry:
+                sd["entry_curr"] = 1
+                sd["entry_targ"] = max_act
         # 구버전 bool 형식 호환
         if 'engrave_curr' in sd and 'engrave_set1_curr_lv' not in sd:
             default_targ = 30 if (not sd.get('engrave_curr', False) and sd.get('engrave_targ', True)) else 1
