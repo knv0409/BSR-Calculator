@@ -13,7 +13,7 @@ def resource_path(filename):
         return os.path.join(sys._MEIPASS, filename)
     return filename
 
-CURRENT_VERSION = "v1.0.5"
+CURRENT_VERSION = "v1.0.6"
 GITHUB_REPO = "knv0409/BSR-Calculator"
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
@@ -85,6 +85,9 @@ def get_max_active_lv(char_lv):
 def get_active_skill_count(prop, char_type):
     """기예 캐릭터는 기존 액티브 스킬 목록에 입장 스킬을 하나 더 사용한다."""
     return (5 if char_type == "전술" else 4) + (1 if prop == "기예" else 0)
+
+def get_base_active_skill_count(char_type):
+    return 5 if char_type == "전술" else 4
 
 def get_active_skill_names(prop, char_type):
     names = ["1. 봉멸", "2. 일반공격", "3. 전투 스킬", "4. 필살기"]
@@ -540,7 +543,9 @@ class SkillDialog(QDialog):
                 skill_data[f"engrave_{key}_targ_lv"] = skill_data.get('engrave_targ_lv', 1)
         self.char_targ_lv = char_targ_lv
         self.ui_active, self.ui_passive, self.ui_engrave = [], [], []
-        self.active_cnt = get_active_skill_count(char_prop, char_type)
+        self.active_cnt = get_base_active_skill_count(char_type)
+        self.has_entry_skill = char_prop == "기예"
+        self.ui_entry = None
         self.passive_cnt = 2 if rarity == "SR" else 3
         self.active_names = get_active_skill_names(char_prop, char_type)
         self.passive_names = ["강화 패시브 1", "강화 패시브 2", "강화 패시브 3"]
@@ -561,6 +566,14 @@ class SkillDialog(QDialog):
             sp_targ.setMinimum(sp_curr.value())
             form_layout.addWidget(lbl, row, 0); form_layout.addWidget(sp_curr, row, 1); form_layout.addWidget(sp_targ, row, 2)
             self.ui_active.append((sp_curr, sp_targ)); row += 1
+        if self.has_entry_skill:
+            sp_curr = QSpinBox(); sp_curr.setRange(1, 9); sp_curr.setValue(self.skill_data.get('entry_curr', 1))
+            sp_targ = QSpinBox(); sp_targ.setRange(1, max(sp_curr.value(), max_act)); sp_targ.setValue(self.skill_data.get('entry_targ', max_act))
+            sp_curr.valueChanged.connect(lambda val, t=sp_targ: t.setMinimum(val))
+            sp_targ.setMinimum(sp_curr.value())
+            form_layout.addWidget(QLabel(self.active_names[-1]), row, 0)
+            form_layout.addWidget(sp_curr, row, 1); form_layout.addWidget(sp_targ, row, 2)
+            self.ui_entry = (sp_curr, sp_targ); row += 1
         for i in range(self.passive_cnt):
             max_pas = get_max_passive_lv(self.char_targ_lv, i)
             lbl = QLabel(self.passive_names[i])
@@ -601,6 +614,9 @@ class SkillDialog(QDialog):
     def save_and_close(self):
         self.skill_data['active_curr'] = [sp[0].value() for sp in self.ui_active]
         self.skill_data['active_targ'] = [sp[1].value() for sp in self.ui_active]
+        if self.ui_entry:
+            self.skill_data['entry_curr'] = self.ui_entry[0].value()
+            self.skill_data['entry_targ'] = self.ui_entry[1].value()
         self.skill_data['passive_curr'] = [sp[0].value() for sp in self.ui_passive]
         self.skill_data['passive_targ'] = [sp[1].value() for sp in self.ui_passive]
         for curr_key, targ_key, cb_c, cb_t in self.ui_engrave:
@@ -618,13 +634,15 @@ class CharacterWidget(QFrame):
         super().__init__(parent)
         self.setObjectName("charFrame")
         self.char_info = char_info
-        ac_cnt = get_active_skill_count(char_info["prop"], char_info["type"])
+        ac_cnt = get_base_active_skill_count(char_info["type"])
         pa_cnt = 2 if char_info["rarity"] == "SR" else 3
         self.skill_data = {"active_curr":[1]*ac_cnt, "active_targ": [9]*ac_cnt, "passive_curr": [0]*pa_cnt, "passive_targ":[3]*pa_cnt,
                            "engrave_set1_curr_lv": 1, "engrave_set1_targ_lv": 30,
                            "engrave_set2_curr_lv": 1, "engrave_set2_targ_lv": 30,
                            "engrave_set3_curr_lv": 1, "engrave_set3_targ_lv": 30,
                            "engrave_core_curr_lv": 1, "engrave_core_targ_lv": 30}
+        if char_info["prop"] == "기예":
+            self.skill_data.update({"entry_curr": 1, "entry_targ": 9})
         self._growth_done = False
         self._cost_snapshot = {}
         self.initUI()
@@ -708,6 +726,8 @@ class CharacterWidget(QFrame):
         targ_lv = int(targ_text)
         max_act = get_max_active_lv(targ_lv)
         self.skill_data["active_targ"] =[max_act] * len(self.skill_data["active_targ"])
+        if self.char_info["prop"] == "기예":
+            self.skill_data["entry_targ"] = max_act
         for i in range(len(self.skill_data["passive_targ"])):
             self.skill_data["passive_targ"][i] = get_max_passive_lv(targ_lv, i)
     def update_weap_target_options(self, curr_text):
@@ -747,12 +767,20 @@ class CharacterWidget(QFrame):
         self.cb_weap_curr.setCurrentText(str(data.get("weap_curr", 1)))
         self.cb_weap_targ.setCurrentText(str(data.get("weap_targ", 100)))
         sd = data.get("skill_data", self.skill_data)
-        # v1.0.4 이하의 기예 캐릭터 저장 데이터에는 입장 스킬이 없으므로 추가한다.
-        active_cnt = get_active_skill_count(self.char_info["prop"], self.char_info["type"])
-        for key, default in [("active_curr", 1), ("active_targ", get_max_active_lv(int(self.cb_char_targ.currentText())))]:
-            sd.setdefault(key, [])
-            if len(sd[key]) < active_cnt:
-                sd[key].extend([default] * (active_cnt - len(sd[key])))
+        # 입장 스킬은 별도 값으로 보관한다. 기존 v1.0.5의 목록 마지막 항목도 자동 이전한다.
+        if self.char_info["prop"] == "기예":
+            base_cnt = get_base_active_skill_count(self.char_info["type"])
+            max_act = get_max_active_lv(int(self.cb_char_targ.currentText()))
+            sd.setdefault("active_curr", [])
+            sd.setdefault("active_targ", [])
+            if len(sd["active_curr"]) > base_cnt and "entry_curr" not in sd:
+                sd["entry_curr"] = sd["active_curr"][base_cnt]
+            if len(sd["active_targ"]) > base_cnt and "entry_targ" not in sd:
+                sd["entry_targ"] = sd["active_targ"][base_cnt]
+            sd["active_curr"] = sd["active_curr"][:base_cnt]
+            sd["active_targ"] = sd["active_targ"][:base_cnt]
+            sd.setdefault("entry_curr", 1)
+            sd.setdefault("entry_targ", max_act)
         # 구버전 bool 형식 호환
         if 'engrave_curr' in sd and 'engrave_set1_curr_lv' not in sd:
             default_targ = 30 if (not sd.get('engrave_curr', False) and sd.get('engrave_targ', True)) else 1
@@ -1139,6 +1167,11 @@ class BleachCalcApp(QMainWindow):
                     req[f"hammer_{prop}_rare"] += rar; req["hwan"] += hw
         for start_lv, targ_lv in zip(c["skill_data"]["active_curr"], c["skill_data"]["active_targ"]):
             for lv in range(start_lv + 1, targ_lv + 1):
+                nor, adv, rar, hw = ACTIVE_SKILL[lv]
+                req[f"yoryung_{prop}_normal"] += nor; req[f"yoryung_{prop}_advanced"] += adv
+                req[f"yoryung_{prop}_rare"] += rar; req["hwan"] += hw
+        if prop == "기예":
+            for lv in range(c["skill_data"].get("entry_curr", 1) + 1, c["skill_data"].get("entry_targ", get_max_active_lv(c["char_targ"])) + 1):
                 nor, adv, rar, hw = ACTIVE_SKILL[lv]
                 req[f"yoryung_{prop}_normal"] += nor; req[f"yoryung_{prop}_advanced"] += adv
                 req[f"yoryung_{prop}_rare"] += rar; req["hwan"] += hw
@@ -2417,6 +2450,13 @@ class BleachCalcApp(QMainWindow):
                         req["hwan"] += hw
             for start_lv, targ_lv in zip(c["skill_data"]["active_curr"], c["skill_data"]["active_targ"]):
                 for lv in range(start_lv + 1, targ_lv + 1):
+                    nor, adv, rar, hw = ACTIVE_SKILL[lv]
+                    req[f"yoryung_{prop}_normal"] += nor
+                    req[f"yoryung_{prop}_advanced"] += adv
+                    req[f"yoryung_{prop}_rare"] += rar
+                    req["hwan"] += hw
+            if prop == "기예":
+                for lv in range(c["skill_data"].get("entry_curr", 1) + 1, c["skill_data"].get("entry_targ", get_max_active_lv(c["char_targ"])) + 1):
                     nor, adv, rar, hw = ACTIVE_SKILL[lv]
                     req[f"yoryung_{prop}_normal"] += nor
                     req[f"yoryung_{prop}_advanced"] += adv
